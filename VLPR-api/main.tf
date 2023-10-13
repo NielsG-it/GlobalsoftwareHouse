@@ -1,0 +1,142 @@
+resource "azurerm_resource_group" "VLPR" {
+  name     = "vlpr-dev"
+  location = "West Europe"
+}
+
+resource "azurerm_service_plan" "VLPR" {
+  name                = "vlpr-dev"
+  location            = azurerm_resource_group.VLPR.location
+  resource_group_name = azurerm_resource_group.VLPR.name
+  os_type             = "Linux"
+  sku_name            = "B1"
+}
+
+resource "azurerm_linux_web_app" "VLPR" {
+  name                = "vlpr-dev"
+  location            = azurerm_resource_group.VLPR.location
+  resource_group_name = azurerm_resource_group.VLPR.name
+  service_plan_id     = azurerm_service_plan.VLPR.id
+  virtual_network_subnet_id = azurerm_subnet.VLPR_webapp.id
+  connection_string {
+    name          = "psql"
+    type          = "PostgreSQL"
+    value         = "postgresql://psqladmin:${var.PSQL_PASSWORD}@${azurerm_postgresql_flexible_server.VLPR.fqdn}:5432/postgres"
+  }
+  
+  site_config {
+    application_stack {
+      docker_image_name = "test"
+      docker_registry_url = "https://globalsoftwarehouse.azurecr.io"
+  }
+  }
+
+  app_settings = {
+    "DATABASE_URL" = "postgresql://psqladmin:${var.PSQL_PASSWORD}@${azurerm_postgresql_flexible_server.VLPR.fqdn}:5432/postgres"
+    "PROJECT_NAME"= "Vehicle License Plate Recognition"
+    "SECRET_KEY"= "z35v0hsbvxxsd-=fy3$mhmd!z675z$1nlas2kw#$0p8#d-p4$@"
+    "ANPR_API_ENDPOINT"= "https://api.armell.ai/api/v2/recognize_bytes/"
+    "ANPR_API_USER"= "brian"
+    "ANPR_API_PASSWORD"= "theengiekuec3oekaum6Mu!u0"
+
+  }
+}
+
+resource "azurerm_postgresql_flexible_server" "VLPR" {
+  name                   = "vlpr-dev"
+  resource_group_name    = azurerm_resource_group.VLPR.name
+  location               = azurerm_resource_group.VLPR.location
+  version                = "13"
+  delegated_subnet_id    = azurerm_subnet.VLPR_sql.id
+  private_dns_zone_id    = azurerm_private_dns_zone.VLPR.id
+  administrator_login    = "psqladmin"
+  administrator_password = var.PSQL_PASSWORD
+  zone                   = "1"
+
+  storage_mb = 32768
+
+  sku_name   = "GP_Standard_D4s_v3"
+  depends_on = [azurerm_private_dns_zone_virtual_network_link.VLPR]
+
+}
+
+resource "azurerm_virtual_network" "VLPR" {
+  name                = "vlpr-dev"
+  location            = azurerm_resource_group.VLPR.location
+  resource_group_name = azurerm_resource_group.VLPR.name
+  address_space       = ["10.0.0.0/16"]
+}
+
+resource "azurerm_subnet" "VLPR_sql" {
+  name                 = "vlpr-sql-dev"
+  resource_group_name  = azurerm_resource_group.VLPR.name
+  virtual_network_name = azurerm_virtual_network.VLPR.name
+  address_prefixes     = ["10.0.2.0/24"]
+  service_endpoints    = ["Microsoft.Storage"]
+  delegation {
+    name = "fs"
+    service_delegation {
+      name = "Microsoft.DBforPostgreSQL/flexibleServers"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/join/action",
+      ]
+    }
+  }
+}
+
+resource "azurerm_subnet" "VLPR_webapp" {
+  name                 = "vlpr-webapp"
+  resource_group_name  = azurerm_resource_group.VLPR.name
+  virtual_network_name = azurerm_virtual_network.VLPR.name
+  address_prefixes     = ["10.0.1.0/24"]
+  delegation {
+    name = "webapp-delegation"
+
+    service_delegation {
+      name    = "Microsoft.Web/serverFarms"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+}
+}
+
+resource "azurerm_nat_gateway" "VLPR" {
+  name                = "vlpr-dev"
+  location            = azurerm_resource_group.VLPR.location
+  resource_group_name = azurerm_resource_group.VLPR.name
+}
+
+resource "azurerm_public_ip" "VLPR" {
+  name                = "vlpr-dev"
+  location            = azurerm_resource_group.VLPR.location
+  resource_group_name = azurerm_resource_group.VLPR.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "VLPR" {
+  nat_gateway_id       = azurerm_nat_gateway.VLPR.id
+  public_ip_address_id = azurerm_public_ip.VLPR.id
+}
+
+resource "azurerm_private_dns_zone" "VLPR" {
+  name                = "sql.postgres.database.azure.com"
+  resource_group_name = azurerm_resource_group.VLPR.name
+}
+
+resource "azurerm_subnet_nat_gateway_association" "VLPR" {
+  subnet_id      = azurerm_subnet.VLPR_webapp.id
+  nat_gateway_id = azurerm_nat_gateway.VLPR.id
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "VLPR" {
+  name                  = "vlpr-dev"
+  private_dns_zone_name = azurerm_private_dns_zone.VLPR.name
+  virtual_network_id    = azurerm_virtual_network.VLPR.id
+  resource_group_name   = azurerm_resource_group.VLPR.name
+}
+
+# Variables
+variable "PSQL_PASSWORD" {
+  description = "The password used for the PostgreSQL admin."
+  default     = "x!H1R52mGLrPa%"
+}
+
