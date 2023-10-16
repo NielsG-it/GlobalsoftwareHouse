@@ -24,8 +24,9 @@ resource "azurerm_linux_web_app" "VLPR" {
   }
   
   site_config {
+    vnet_route_all_enabled = true
     application_stack {
-      docker_image_name = "test"
+      docker_image_name = "vlpr-backend-api:1.0"
       docker_registry_url = "https://globalsoftwarehouse.azurecr.io"
   }
   }
@@ -54,7 +55,7 @@ resource "azurerm_postgresql_flexible_server" "VLPR" {
 
   storage_mb = 32768
 
-  sku_name   = "GP_Standard_D4s_v3"
+  sku_name   = "B_Standard_B1ms"
   depends_on = [azurerm_private_dns_zone_virtual_network_link.VLPR]
 
 }
